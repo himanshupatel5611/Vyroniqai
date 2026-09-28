@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default Deny Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+        request.auth.token.email == 'vyroniqai640@gmail.com' && 
+        request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Test connection doc
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Website Requests collection
+    match /websiteRequests/{requestId} {
+      function isValidRequest(data) {
+        return data.businessName is string && data.businessName.size() <= 150 &&
+               data.category is string && data.category.size() <= 100 &&
+               data.phone is string && data.phone.size() <= 30 &&
+               data.email is string && data.email.size() <= 150 &&
+               data.location is string && data.location.size() <= 150 &&
+               data.selectedPlan in ['monthly', 'yearly'] &&
+               data.status in ['new', 'in_review', 'in_development', 'completed', 'archived'] &&
+               data.createdAt is string && data.createdAt.size() <= 50;
+      }
+
+      // Public can create a website build brief (lead capture for small businesses)
+      allow create: if isValidId(requestId) && 
+                       isValidRequest(request.resource.data);
+
+      // Authenticated users who created the request or admin can view
+      allow get: if isValidId(requestId) && 
+                    (isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid));
+
+      // Admin or owner can list
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      // Admin can update status, add internal notes, or user can update their pending request
+      allow update: if isValidId(requestId) && isValidRequest(request.resource.data) && (
+        isAdmin() || 
+        (isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == resource.data.userId)
+      );
+
+      // Only admin can delete requests
+      allow delete: if isValidId(requestId) && isAdmin();
+    }
+
+    // Testimonials collection (verified client feedback)
+    match /testimonials/{testimonialId} {
+      function isValidTestimonial(data) {
+        return data.clientName is string && data.clientName.size() <= 100 &&
+               data.businessName is string && data.businessName.size() <= 150 &&
+               data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+               data.quote is string && data.quote.size() <= 1000 &&
+               data.category is string && data.category.size() <= 100 &&
+               data.createdAt is string && data.createdAt.size() <= 50;
+      }
+
+      // Public can read verified client feedback
+      allow read: if isValidId(testimonialId);
+
+      // Authenticated user or admin can add testimonial feedback
+      allow create: if isValidId(testimonialId) && isSignedIn() && isValidTestimonial(request.resource.data);
+
+      // Admin can update or delete testimonials
+      allow update, delete: if isValidId(testimonialId) && isAdmin();
+    }
+
+    // User profiles collection
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.uid == userId &&
+               data.email is string && data.email.size() <= 150 &&
+               data.createdAt is string && data.createdAt.size() <= 50;
+      }
+
+      // Strict user privacy - only self or admin
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+      allow create, update: if isSignedIn() && 
+                               request.auth.uid == userId && 
+                               isValidId(userId) && 
+                               isValidUser(request.resource.data);
+
+      allow delete: if isAdmin();
+    }
+  }
+}

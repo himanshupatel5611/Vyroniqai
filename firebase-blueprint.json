@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "WebsiteRequest": {
+      "title": "WebsiteRequest",
+      "description": "A website design and development brief submitted by a small business owner.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "businessName": { "type": "string", "maxLength": 150 },
+        "category": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "whatsapp": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 150 },
+        "location": { "type": "string", "maxLength": 150 },
+        "websiteStyle": { "type": "string", "maxLength": 100 },
+        "services": { "type": "string", "maxLength": 1000 },
+        "aboutBusiness": { "type": "string", "maxLength": 2000 },
+        "preferredColors": { "type": "array" },
+        "socialLinks": { "type": "object" },
+        "logoUrl": { "type": "string", "maxLength": 2000 },
+        "photos": { "type": "array" },
+        "specialRequirements": { "type": "string", "maxLength": 2000 },
+        "selectedPlan": { "type": "string", "enum": ["monthly", "yearly"] },
+        "status": { "type": "string", "enum": ["new", "in_review", "in_development", "completed", "archived"] },
+        "internalNotes": { "type": "array" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["businessName", "category", "phone", "email", "location", "selectedPlan", "status", "createdAt"]
+    },
+    "Testimonial": {
+      "title": "Testimonial",
+      "description": "Verified client reviews and feedback for websites built by VYRONIQ.AI.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "clientName": { "type": "string", "maxLength": 100 },
+        "businessName": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "maxLength": 100 },
+        "rating": { "type": "number" },
+        "quote": { "type": "string", "maxLength": 1000 },
+        "plan": { "type": "string", "maxLength": 50 },
+        "turnaround": { "type": "string", "maxLength": 50 },
+        "avatar": { "type": "string", "maxLength": 2000 },
+        "metrics": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["clientName", "businessName", "rating", "quote", "category", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile document storing basic authenticated user session details.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 150 },
+        "displayName": { "type": "string", "maxLength": 150 },
+        "photoURL": { "type": "string", "maxLength": 2000 },
+        "role": { "type": "string", "enum": ["client", "admin"] },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["uid", "email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/websiteRequests/{requestId}": {
+      "schema": "WebsiteRequest",
+      "description": "Collection of customer website design orders and briefs."
+    },
+    "/testimonials/{testimonialId}": {
+      "schema": "Testimonial",
+      "description": "Collection of verified client feedback and testimonials."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private user profiles containing account metadata."
+    }
+  }
+}
