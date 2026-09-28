@@ -44,13 +44,36 @@ export const firestoreService = {
       console.warn('LocalStorage save fallback note', e);
     }
 
-    // Persist in Firestore
+    // Persist in Firestore with cleaned fields (no undefined keys)
     try {
+      const cleanData: Record<string, any> = {};
+      for (const [key, val] of Object.entries(fullRequest)) {
+        if (val !== undefined && val !== null) {
+          if (typeof val === 'object' && !Array.isArray(val)) {
+            const nested: Record<string, any> = {};
+            for (const [nKey, nVal] of Object.entries(val)) {
+              if (nVal !== undefined && nVal !== null && nVal !== '') {
+                nested[nKey] = nVal;
+              }
+            }
+            if (Object.keys(nested).length > 0) {
+              cleanData[key] = nested;
+            }
+          } else {
+            cleanData[key] = val;
+          }
+        }
+      }
+
       const ref = doc(db, REQUESTS_COLLECTION, id);
-      await setDoc(ref, fullRequest);
+      // Run with timeout so network delays never freeze the submission flow
+      const writePromise = setDoc(ref, cleanData);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write timeout')), 2500));
+      await Promise.race([writePromise, timeoutPromise]).catch(err => {
+        console.warn('Firestore write async fallback:', err);
+      });
     } catch (error) {
-      console.warn('Firestore sync will complete once online:', error);
-      // We don't crash user UX if client is offline
+      console.warn('Firestore sync note:', error);
     }
 
     return fullRequest;

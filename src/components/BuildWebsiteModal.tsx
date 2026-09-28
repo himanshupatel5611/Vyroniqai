@@ -23,6 +23,7 @@ import { storageService } from '../services/storage.ts';
 import { firestoreService } from '../services/firestoreService.ts';
 import { useAuth } from '../contexts/AuthContext.tsx';
 import { VYRONIQ_LOGO_IMAGE } from '../data/mockData.ts';
+import { compressImage } from '../utils/imageUtils.ts';
 
 interface BuildWebsiteModalProps {
   isOpen: boolean;
@@ -119,10 +120,19 @@ export const BuildWebsiteModal: React.FC<BuildWebsiteModalProps> = ({
 
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>(initialPlan);
   const [specialRequirements, setSpecialRequirements] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const [createdOrder, setCreatedOrder] = useState<WebsiteRequest | null>(null);
 
   const { currentUser, isAdmin } = useAuth();
+  const modalBodyRef = React.useRef<HTMLDivElement>(null);
+
+  // Scroll to top of modal whenever step changes
+  useEffect(() => {
+    modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    setValidationError(null);
+  }, [step]);
 
   // Reset or preset on open
   useEffect(() => {
@@ -136,72 +146,141 @@ export const BuildWebsiteModal: React.FC<BuildWebsiteModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Handle logo file selection
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle logo file selection with automatic compression
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, 600, 600, 0.8);
+        setLogoPreview(compressed);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setLogoPreview(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
-  // Handle sample photos
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle sample photos with automatic compression
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      Array.from(files).slice(0, 3).forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setPhotoPreviews(prev => [...prev.slice(0, 3), reader.result as string]);
-        };
-        reader.readAsDataURL(file);
-      });
+      const remainingSlots = 3 - photoPreviews.length;
+      for (const file of Array.from(files).slice(0, remainingSlots)) {
+        try {
+          const compressed = await compressImage(file, 800, 800, 0.75);
+          setPhotoPreviews(prev => [...prev.slice(0, 2), compressed]);
+        } catch {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            setPhotoPreviews(prev => [...prev.slice(0, 2), reader.result as string]);
+          };
+          reader.readAsDataURL(file);
+        }
+      }
     }
   };
 
   const handleNextStep = () => {
-    if (step === 1 && (!businessName.trim() || !location.trim())) return;
-    if (step === 2 && (!phone.trim() || !email.trim())) return;
-    setStep(prev => prev + 1);
+    setValidationError(null);
+    if (step === 1) {
+      if (!businessName.trim()) {
+        setValidationError('Please enter your business name to continue.');
+        return;
+      }
+      if (!location.trim()) {
+        setValidationError('Please enter your city/location to continue.');
+        return;
+      }
+    }
+    if (step === 2) {
+      if (!phone.trim()) {
+        setValidationError('Please enter your phone number to continue.');
+        return;
+      }
+      if (!email.trim()) {
+        setValidationError('Please enter your email address to continue.');
+        return;
+      }
+    }
+    setStep(prev => Math.min(5, prev + 1));
   };
 
   const handlePrevStep = () => {
+    setValidationError(null);
     setStep(prev => Math.max(1, prev - 1));
   };
 
-  const handleFinalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleFinalSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setValidationError(null);
+
     const effectiveWhatsapp = sameAsPhone ? phone : (whatsapp || phone);
 
-    const saved = await firestoreService.saveWebsiteRequest({
-      businessName,
-      category,
-      phone,
-      whatsapp: effectiveWhatsapp,
-      email,
-      location,
-      websiteStyle,
-      services: services.trim() || 'General products and services portfolio',
-      aboutBusiness: aboutBusiness.trim() || 'Small business seeking a modern professional digital presence.',
-      preferredColors: customColors,
-      socialLinks: {
-        instagram: socialInstagram,
-        facebook: socialFacebook,
-        linkedin: socialLinkedin,
-        googleMaps: socialMaps
-      },
-      logoUrl: logoPreview || undefined,
-      photos: photoPreviews.length > 0 ? photoPreviews : undefined,
-      specialRequirements: specialRequirements.trim() || 'Standard responsive setup with maintenance included.',
-      selectedPlan
-    }, currentUser?.uid);
+    try {
+      const saved = await firestoreService.saveWebsiteRequest({
+        businessName: businessName.trim() || 'My Business',
+        category: category || 'Small Business',
+        phone: phone.trim() || 'Not provided',
+        whatsapp: effectiveWhatsapp.trim() || phone.trim() || 'Not provided',
+        email: email.trim() || 'contact@business.com',
+        location: location.trim() || 'India',
+        websiteStyle: websiteStyle || 'Modern Futuristic',
+        services: services.trim() || 'General products and services portfolio',
+        aboutBusiness: aboutBusiness.trim() || 'Small business seeking a modern professional digital presence.',
+        preferredColors: customColors,
+        socialLinks: {
+          instagram: socialInstagram.trim(),
+          facebook: socialFacebook.trim(),
+          linkedin: socialLinkedin.trim(),
+          googleMaps: socialMaps.trim()
+        },
+        logoUrl: logoPreview || undefined,
+        photos: photoPreviews.length > 0 ? photoPreviews : undefined,
+        specialRequirements: specialRequirements.trim() || 'Standard responsive setup with maintenance included.',
+        selectedPlan: selectedPlan || 'monthly'
+      }, currentUser?.uid);
 
-    setCreatedOrder(saved);
-    onRequestCreated(saved);
-    setStep(6); // Step 6 is the confirmation summary screen
+      setCreatedOrder(saved);
+      onRequestCreated(saved);
+      setStep(6); // Step 6 is the confirmation summary screen
+    } catch (err) {
+      console.warn('Fallback order creation due to network/save error:', err);
+      // Guarantee order reference is generated and displayed without blocking
+      const fallbackId = `VYR-${Math.floor(1000 + Math.random() * 9000)}`;
+      const fallback: WebsiteRequest = {
+        id: fallbackId,
+        businessName: businessName.trim() || 'My Business',
+        category: category || 'Small Business',
+        phone: phone.trim() || 'Not provided',
+        whatsapp: effectiveWhatsapp.trim() || phone.trim() || 'Not provided',
+        email: email.trim() || 'contact@business.com',
+        location: location.trim() || 'India',
+        websiteStyle: websiteStyle || 'Modern Futuristic',
+        services: services.trim() || 'General products and services portfolio',
+        aboutBusiness: aboutBusiness.trim() || 'Small business seeking a modern professional digital presence.',
+        preferredColors: customColors,
+        socialLinks: {
+          instagram: socialInstagram.trim(),
+          facebook: socialFacebook.trim(),
+          linkedin: socialLinkedin.trim(),
+          googleMaps: socialMaps.trim()
+        },
+        specialRequirements: specialRequirements.trim() || 'Standard responsive setup with maintenance included.',
+        selectedPlan: selectedPlan || 'monthly',
+        createdAt: new Date().toISOString(),
+        status: 'new'
+      };
+      setCreatedOrder(fallback);
+      onRequestCreated(fallback);
+      setStep(6);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const copyRefCode = () => {
@@ -272,9 +351,15 @@ export const BuildWebsiteModal: React.FC<BuildWebsiteModalProps> = ({
         )}
 
         {/* Form Body - Scrollable */}
-        <div className="p-6 sm:p-8 overflow-y-auto flex-grow">
+        <div ref={modalBodyRef} className="p-6 sm:p-8 overflow-y-auto flex-grow">
           
-          {/* STEP 1: Business Identity & Category */}
+          {/* Validation banner if any required field was missing */}
+          {validationError && (
+            <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-3 animate-pulse">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-400 shrink-0" />
+              <span className="font-medium">{validationError}</span>
+            </div>
+          )}
           {step === 1 && (
             <div className="space-y-6">
               <div>
@@ -628,28 +713,28 @@ export const BuildWebsiteModal: React.FC<BuildWebsiteModalProps> = ({
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
-                    type="url"
+                    type="text"
                     value={socialInstagram}
                     onChange={e => setSocialInstagram(e.target.value)}
-                    placeholder="Instagram URL (e.g. instagram.com/mybusiness)"
+                    placeholder="Instagram (e.g. @mybusiness or instagram.com/...)"
                     className="px-3 py-2 text-xs bg-white/[0.03] border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
                   />
                   <input
-                    type="url"
+                    type="text"
                     value={socialMaps}
                     onChange={e => setSocialMaps(e.target.value)}
-                    placeholder="Google Maps location link"
+                    placeholder="Google Maps location link or address"
                     className="px-3 py-2 text-xs bg-white/[0.03] border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
                   />
                   <input
-                    type="url"
+                    type="text"
                     value={socialFacebook}
                     onChange={e => setSocialFacebook(e.target.value)}
-                    placeholder="Facebook Page URL"
+                    placeholder="Facebook Page or handle"
                     className="px-3 py-2 text-xs bg-white/[0.03] border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
                   />
                   <input
-                    type="url"
+                    type="text"
                     value={socialLinkedin}
                     onChange={e => setSocialLinkedin(e.target.value)}
                     placeholder="LinkedIn Profile / Company"
@@ -757,10 +842,11 @@ export const BuildWebsiteModal: React.FC<BuildWebsiteModalProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-4 px-6 text-sm font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-xl shadow-xl hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                disabled={isSubmitting}
+                className="w-full py-4 px-6 text-sm font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-xl shadow-xl hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 <Sparkles className="w-4 h-4 text-blue-200" />
-                <span>Submit Website Request</span>
+                <span>{isSubmitting ? 'Recording Request...' : 'Submit Website Request'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
@@ -898,8 +984,8 @@ export const BuildWebsiteModal: React.FC<BuildWebsiteModalProps> = ({
 
         </div>
 
-        {/* Footer Navigation (Step 1-4) */}
-        {step < 5 && (
+        {/* Footer Navigation (Step 1-5) */}
+        {step <= 5 && (
           <div className="px-6 py-4 border-t border-white/10 bg-[#0d0f1c] flex items-center justify-between shrink-0">
             {step > 1 ? (
               <button
@@ -908,18 +994,31 @@ export const BuildWebsiteModal: React.FC<BuildWebsiteModalProps> = ({
                 className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back</span>
+                <span>{step === 5 ? 'Back to Step 4' : 'Back'}</span>
               </button>
             ) : <div />}
 
-            <button
-              type="button"
-              onClick={handleNextStep}
-              className="px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-xl shadow-md hover:brightness-110 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <span>Continue</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {step < 5 ? (
+              <button
+                type="button"
+                onClick={handleNextStep}
+                className="px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-xl shadow-md hover:brightness-110 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>{step === 4 ? 'Continue to Plan & Submit (Step 5)' : 'Continue'}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleFinalSubmit()}
+                disabled={isSubmitting}
+                className="px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-xl shadow-md hover:brightness-110 active:scale-95 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles className="w-4 h-4 text-blue-200" />
+                <span>{isSubmitting ? 'Recording Request...' : 'Submit Website Request'}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
 
